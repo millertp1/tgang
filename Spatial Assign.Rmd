@@ -1,0 +1,208 @@
+---
+title: "Spatial Assign"
+author: "Taylor Miller"
+date: "2/16/2020"
+output: pdf_document
+---
+
+```{r}
+library(vegan)
+data(BCI)
+## UTM Coordinates (in metres)
+BCI_xy = data.frame(x = rep(seq(625754, 626654, by=100), each=5), 
+                    y = rep(seq(1011569,  1011969, by=100), len=50))
+library(nlme)
+
+data(BCI)
+?data(BCI)
+data(BCI.env)
+plot(BCI_xy)
+```
+
+
+```{r}
+
+#Examine if there is evidence of spatial dependence in a rare and a common species in the BCI tree dataset
+
+BCI_com <- BCI[c(1:50),c(68, 71)]
+BCI_com
+plot(BCI_com)
+
+sr = apply(BCI_com, 1, function(x) sum(x > 0))
+hist(sr)
+```
+
+
+
+```{r}
+plot(BCI_com, cex = sr/max(sr))
+col_brks = hist(sr, plot=F)$breaks
+col_indices = as.numeric(cut(sr, col_brks))
+cols = rev(terrain.colors(length(col_brks)))
+plot(BCI_com, cex=2, pch=19, col=cols[col_indices])
+
+#Examine if there is evidence of spatial dependence in a rare and a common species in the BCI tree dataset
+#Eugenia.galaonensis: rare
+#Faramea.occidentalls:common
+```
+
+```{r}
+# calculate Euclidean distance between richness and spatial coordinates
+bcisr_dist = dist(sr)
+bcixy_dist = dist(BCI_com)
+
+
+bcimax_dist = max(bcixy_dist) / 2
+
+# plot result
+plot(bcixy_dist, bcisr_dist)
+abline(lm(bcisr_dist ~ bcixy_dist), lwd=3, col='red')
+lines(lowess(bcixy_dist, bcisr_dist), lwd=3, col='pink')
+abline(v = bcimax_dist, col='red', lwd=3, lty=2)
+
+
+# carry out a permutation test for significance:
+nperm = 1000
+bcinull_cor = bciobs_cor
+for (i in 2:nperm) {
+    # shuffle the rows of the spatial coordinates
+   bcitmp_xy = BCI_com[sample(nrow(BCI_com)), ]
+    # correlation between the shuffled spatial coordinates and sr_dist
+    null_cor[i] = cor(dist(bcitmp_xy), bcisr_dist)
+}
+# compute the p-value
+sum(null_cor >= obs_cor) / nperm 
+
+
+
+bci_mantel = mantel(bcixy_dist, bcisr_dist)
+bci_mantel
+
+
+# compute correlation
+bciobs_cor = cor(bcixy_dist, bcisr_dist)
+bciobs_cor
+
+bcicomm_dist = vegdist(BCI_com)
+bcicomm_mantel = mantel(bcixy_dist, bcicomm_dist)
+bcicomm_mantel
+
+
+bcisr_corlog = mantel.correlog(bcisr_dist, bcixy_dist)
+bcicomm_corlog = mantel.correlog(bcicomm_dist, bcixy_dist)
+bcisr_corlog
+
+```
+
+```{r}
+par(mfrow=c(1,2))
+plot(bcisr_corlog)
+mtext(side=3, 'Species Richness')
+abline(v = bcimax_dist, col='red', lwd=3, lty=2)
+plot(bcicomm_corlog)
+mtext(side=3, 'Community Composition')
+abline(v =bcimax_dist, col='red', lwd=3, lty=2)
+
+#There doesseem to be evidence of spatial dependence in a rare and a common species, looking at the results of the graphs the two species do not appear abundant in the same areas
+```
+
+
+
+
+
+
+```{r}
+#2) Build two generalized linear models to predict the abundance of the species Drypetes standleyi using the abundance of other tree species in the study site. Specifically examine the following species as predictor variables:
+
+sp_ids = c("Cordia.lasiocalyx", "Hirtella.triandra",
+           "Picramnia.latifolia", "Quassia.amara",
+           "Tabernaemontana.arborea", "Trattinnickia.aspera", 
+           "Xylopia.macrantha")
+
+sp_ids
+
+sp_1 <- BCI$Cordia.lasiocalyx #Common
+sp_2 <- BCI$Hirtella.triandra
+sp_3 <- BCI$Picramnia.latifolia #Rare
+sp_4 <- BCI$Picramnia.latifolia
+sp_5 <- BCI$Quassia.amara
+sp_6 <- BCI$Tabernaemontana.arborea
+sp_7 <- BCI$Trattinnickia.aspera
+sp_8 <- BCI$Xylopia.macrantha
+sp_a <- BCI$Drypetes.standleyi
+
+```
+
+
+```{r}
+#model 1 use 1 variable as a predictor
+data(BCI.env)
+plot(BCI_xy)
+
+sr1_dat = data.frame(sp_1, BCI_xy)
+
+sr1_lm = gls(sp_1 ~ 1, data = sr1_dat)
+
+sr1_lm = gls(sp_1 ~ 1 + sp_a, data = sr1_dat)
+       
+plot(Variogram(sr1_lm, form= ~ x + y))
+
+
+sr1_exp = update(sr1_lm, corr=corExp(form=~x + y))
+# examine fit of error model to the raw model residuals
+# note this function defaults to displaying pearson standardized residuals
+# resType='p' or resType='pearson'
+plot(Variogram(sr1_exp, bcimaxDist = bcimax_dist))
+anova(sr1_lm)
+
+
+#this doesn't look bad points are fairly fitted to the line
+```
+
+
+
+
+```{r}
+#model 2 use all variables as a predictors
+data(BCI.env)
+plot(BCI_xy)
+
+bcisr_dat = data.frame(sr, BCI.env, BCI_xy)
+
+bcisr_dat = data.frame(sr,BCI.env, BCI_xy)
+
+
+bcisr_lm = gls(sr ~ UTM.EW, data = bcisr_dat)
+       
+plot(Variogram(bcisr_lm, form= ~ x + y))
+
+
+bcisr_exp = update(bcisr_lm, corr=corExp(form=~x + y))
+# examine fit of error model to the raw model residuals
+# note this function defaults to displaying pearson standardized residuals
+# resType='p' or resType='pearson'
+plot(Variogram(bcisr_exp, bcimaxDist = bcimax_dist))
+
+
+#this doesn't look bad points are fairly fitted to the line, this model fits the error well. These provide a good fit for the data but lets look more models. 
+
+anova(bcisr_lm)
+anova(bcisr_exp)
+anova(sr1_exp)
+anova(sr1_lm)
+
+#With both models examine the spatial dependence of the residuals using the function Variogram. Model the spatial dependence in the residuals using one of the error structures available.
+
+#Did including the spatial error term have a large impact on the coefficients of the model?
+#Yes including spatial error improved teh model and it fit the plots better for both models. 
+
+#Did including the spatial error terms significantly improve model fit (use function anova to carry out model comparison)?
+
+#The 1st model with just one variable did not significantly improve the model, according to the anove test. While teh second model did see significant changes to improve the model. 
+
+#Explain why you did or did not observe a difference in the influence of adding the spatial error term between the two models.
+
+#In the first model there isn't enough error to account for with just one variable, you can not draw a conclusion about one species abundance in relation to another with just that information. Having muliple spceies and various abundances allows for better interpretation of abundance for drawing conclusions and creating a better model. 
+```
+
+
